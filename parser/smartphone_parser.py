@@ -34,8 +34,8 @@ def extract_smartphone_elements(browser: webdriver, smartphones_url: str):
 
 def create_smartphone_list(elements: List[webdriver.remote.webelement.WebElement], smartphones: List[Dict]) -> List[Dict]:
     """
-        Создает список смартфонов из заданных элементов. Находит все через data-product
-        из которого вытаскивает все необходимые данные и записывает в smartphones
+        Записывает в список смартфонов smartphones заданных элементы(название, артикул, цена, память). Находит все через data-product
+        из которого вытаскивает все необходимые данные
 
         Параметры:
         elements (list) : список элементов webdriver, представляющих смартфоны
@@ -53,7 +53,7 @@ def create_smartphone_list(elements: List[webdriver.remote.webelement.WebElement
                 "name": name,
                 "articul": data_product_dict["item_id"],
                 "price": data_product_dict["price"],
-                "memory-size": name.split(",")[1].strip()
+                "memory-size": name.split(",")[1].strip() #из названия, получаем память, которая записана в середине
             })
         except Exception as e:
             logging.error(f'Ошибка при создании словаря смартфонов: {e}')
