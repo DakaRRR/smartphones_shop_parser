@@ -4,7 +4,7 @@ import json
 fastapi_app = FastAPI()
 
 
-def get_smartphones_json(filepath:str):
+def get_smartphones_json(filepath: str):
     """Читаем данные с файла smartphones json"""
     with open(filepath, "r", encoding='utf-8') as file:
         smartphones = json.load(file)

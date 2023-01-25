@@ -1,65 +1,57 @@
 from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
 from typing import List, Dict
 import json
+import requests
 import logging
-import time
 
 
 logging.basicConfig(level=logging.INFO, filename='smartphones_parser.log', encoding='utf-8')
 
 
-def configure_chrome_webdriver() -> webdriver:
-    """Вовращает Хромовский webdriver"""
-    options = Options()
-    options.add_argument("--disable-infobars")
-    return webdriver.Chrome(options=options)
+def configure_bs_html(url: str) -> BeautifulSoup:
+    """Вовзрщает объект BeautifulSoup c заданной ссылкой url через request"""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/89.0.4389.82 Safari/537.36'}
+    request = requests.get(url, headers=headers)
+    soup = BeautifulSoup(request.text, 'html.parser')
+    return soup
 
 
-def extract_smartphone_elements(browser: webdriver, smartphones_url: str):
-    """
-       Извлекает все элементы со смартфонами из заданного url с помощью selenium webdriver
-       и css selector'а класса - .bx_catalog_item_container"
-       """
+def extract_smartphone_data(soup: BeautifulSoup) -> List[Dict]:
+    """Извлекает соответствующие данные для каждого смартфона из заданного объекта BeautifulSoup soup и возвращает
+        данные в виде списка словарей smartphones."""
+    smartphones = []
     try:
-        browser.get(url=smartphones_url)
-        elements = browser.find_elements(By.CSS_SELECTOR, ".bx_catalog_item_container")
-        logging.info(f'Элементы со всеми смартфонами на этой странице были извлечены. Их количество - {len(elements)}')
-        return elements
-    except Exception as e:
-        logging.error(f'Ошибка при загрузке элементов: {e}')
-
-
-def create_smartphone_list(elements: List[webdriver.remote.webelement.WebElement], smartphones: List[Dict]) -> List[Dict]:
-    """
-        Записывает в список смартфонов smartphones заданных элементы(название, артикул, цена, память). Находит все через data-product
-        из которого вытаскивает все необходимые данные
-
-        Параметры:
-        elements (list) : список элементов webdriver, представляющих смартфоны
-        smartphones(list(dict)): список куда записываются данные
-
-        Возвращает:
-        smartphones : обновленный список с новыми данными
-        """
-    for element in elements:
-        try:
-            data_product = element.get_attribute("data-product")
-            data_product_dict = json.loads(data_product)
-            name = data_product_dict["item_name"].encode('utf-8', 'unicode-escape').decode() #декодим т.к. текст на русском
+        elements = soup.select('.bx_catalog_item_container')
+        for element in elements:
+            data = json.loads(element['data-product'])
             smartphones.append({
-                "name": name,
-                "articul": data_product_dict["item_id"],
-                "price": data_product_dict["price"],
-                "memory-size": name.split(",")[1].strip() #из названия, получаем память, которая записана в середине
+                'name': data["item_name"],
+                'article': data["item_id"],
+                'price': data['price'],
+                'memory-size': data["item_name"].split(",")[1].strip()
             })
-        except Exception as e:
-            logging.error(f'Ошибка при создании словаря смартфонов: {e}')
+        logging.info(f'{len(smartphones)} - смартфонов были пропарсены.')
+        return smartphones
+    except Exception as e:
+        logging.error(f'Ошибка при парсинге элементов со смартфонами: {e}')
 
-    logging.info(f'Данные о смарфтонах со всех элементов записались их количество - {len(smartphones)}')
-    return smartphones
+
+def get_number_of_pages(url: str) -> int:
+    """Возвращает число страниц текущей веб-страницы"""
+    try:
+        soup = configure_bs_html(url)
+        pagination_div = soup.find('div', class_="bx-pagination-container")
+        pagination_li = pagination_div.find_all('li')
+        last_page_link = pagination_li[-2].find('a')[
+            'href']  # -2, т.к. предпоследняя кнопка имеет значение с общим кол-вом страниц
+        last_page_number = int(last_page_link.split("PAGEN_1=")[-1])
+        logging.info(f'Страниц которых надо пропарсить - {last_page_number}')
+        return last_page_number
+    except Exception as e:
+        logging.error(f'Ошибка при получении количества страниц: {e}')
+        return 14  # текущее количество страниц смартфонов на сайте
 
 
 def save_smartphones_to_json(data: List[Dict], filename: str) -> None:
@@ -72,50 +64,22 @@ def save_smartphones_to_json(data: List[Dict], filename: str) -> None:
         logging.error(f'Ошибка при сохранении json файла: {e}')
 
 
-def get_number_of_pages(browser: webdriver) -> int:
-    """Возвращает число страниц текущей веб-страницы"""
-    try:
-        soup = BeautifulSoup(browser.page_source, 'html.parser')
-        pagination_div = soup.find('div', class_="bx-pagination-container")
-        pagination_li = pagination_div.find_all('li')
-        last_page_link = pagination_li[-2].find('a')['href'] # -2, т.к. предпоследняя кнопка имеет значение с общим кол-вом страниц
-        last_page_number = int(last_page_link.split("PAGEN_1=")[-1])
-        logging.info(f'Страниц которых надо пропарсить - {last_page_number}')
-        return last_page_number
-    except Exception as e:
-        logging.error(f'Ошибка при получении количества страниц: {e}')
-        return 14  # текущее количество страниц смартфонов на сайте
-
-
-def get_next_page_url(browser: webdriver) -> str:
-    """Возвращает URL следующей страницы"""
-    try:
-        next_page_button = browser.find_element(By.CSS_SELECTOR, '.bx-pag-next')
-        next_page_button.click()
-        smartphones_url = browser.current_url
-        return smartphones_url
-    except Exception as e:
-        logging.error(f'Ошибка при переходе на следующую страницу: {e}')
-
-
 def smartphones_parser_start() -> None:
-    browser = configure_chrome_webdriver()
     smartphones_url = "https://shop.kz/smartfony/filter/astana-is-v_nalichii-or-ojidaem-or-dostavim/apply/"
-    browser.get(url=smartphones_url)
-    last_page_number = get_number_of_pages(browser)
-    smartphones_json = []
-    # проходимся по всем страницам и по очередности запускаем функции
-    for page_number in range(1, last_page_number + 1):
+    smartphones = []  # словарь для записи данных
+    number_of_pages = get_number_of_pages(smartphones_url)  # получение кол-ва страниц со смартфонами
+    for page_number in range(1, number_of_pages + 1):
         try:
-            logging.info(f'{page_number} страница понеслась.......')
-            time.sleep(15)
-            elements = extract_smartphone_elements(browser, smartphones_url)
-            smartphones_json = create_smartphone_list(elements, smartphones_json)
-            smartphones_url = get_next_page_url(browser)
+            page_url = f'{smartphones_url}?PAGEN_1={page_number}'  # создаем str являвющейся ссылкой на страницу
+            logging.info(f'{page_number} страница понеслась....... Ссылка: {page_url}')
+            soup = configure_bs_html(page_url)  #создаем объект Beatifulsoup из ссылки которые мы получили
+            smartphones.extend(extract_smartphone_data(soup))  # записываем данные в словарь
         except Exception as e:
             logging.error(f'Ошибка при парсинге {page_number} страницы: {e}')
 
-    save_smartphones_to_json(smartphones_json, "smartphones")
+    logging.info(f'Данные о смарфтонах со всех элементов записались их количество - {len(smartphones)}')
+
+    save_smartphones_to_json(smartphones, "smartphones")
 
 
 def main():
